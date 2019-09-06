@@ -2,11 +2,11 @@
 #define FALSE !TRUE
 
 // Shells process id, pgid, terminal mode
-static pid_t GBSH_PID;
-static pid_t GBSH_PGID;
+static pid_t bash_pid;
+static pid_t grbash_pid;
 
-static int GBSH_IS_INTERACTIVE;
-static struct termios GBSH_TMODES;
+static int is_interact;
+static struct termios bash_mode;
 
 static char* currentDirectory;
 
