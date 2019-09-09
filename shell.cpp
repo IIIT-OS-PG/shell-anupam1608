@@ -134,7 +134,7 @@ void signalHandler_int(int p)
 	}
 }
 
-void initialize()
+void initialize() //source : gnu.org
 {
         bash_pid = getpid();
 
