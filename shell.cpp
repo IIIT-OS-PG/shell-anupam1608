@@ -149,18 +149,12 @@ void initialize()
 
 
 			act_child.sa_handler = signalHandler_child;
-
 			act_int.sa_handler = signalHandler_int;
-
-
-
 			sigaction(SIGCHLD, &act_child, 0);
-
 			sigaction(SIGINT, &act_int, 0);
-
-
 			setpgid(bash_pid, bash_pid);
 			grbash_pid = getpgrp();
+
 
 			if (bash_pid != grbash_pid)
             {
@@ -169,9 +163,8 @@ void initialize()
 					exit(EXIT_FAILURE);
 			}
 
+
 			tcsetpgrp(STDIN_FILENO, grbash_pid);
-
-
 			tcgetattr(STDIN_FILENO, &bash_mode);
 
 
@@ -265,7 +258,8 @@ void print_history()
 
 void echo(char *tokenlist[])
 {
-
+    if(tokenlist[1][0]=='$')
+    {   
     int i=1,j=0;
     char environ_var[1000], *variable;
 
@@ -282,6 +276,13 @@ void echo(char *tokenlist[])
     if(!variable)
         cout<<endl;
     printf("%s\n",variable);
+}
+    else if(tokenlist[1][0]!='\0')
+    {
+        printf("%s\n",tokenlist[1]);    
+
+    }
+
 }
 
 
@@ -548,11 +549,7 @@ void pipe_manager(char * tokenlist[])
 		if(pid==0)
 		{
 
-			if (i == 0){
-				dup2(fd2[1], STDOUT_FILENO);
-			}
-
-			else if (i == no_of_cmds - 1)
+			 if (i == no_of_cmds - 1)
             {
 				if (no_of_cmds % 2 != 0)
 				{
@@ -566,6 +563,11 @@ void pipe_manager(char * tokenlist[])
 				}
 
 			}
+
+            else if (i == 0)
+            {
+                dup2(fd2[1], STDOUT_FILENO);
+            }
 			else
 			{
 				if (i % 2 != 0)
@@ -577,7 +579,6 @@ void pipe_manager(char * tokenlist[])
 				else
                 {
 					dup2(fd1[0],STDIN_FILENO);
-
 					dup2(fd2[1],STDOUT_FILENO);
 				}
 			}
