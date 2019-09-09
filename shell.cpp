@@ -5,28 +5,132 @@
 #include<sys/wait.h>
 #include<fcntl.h>
 #include<termios.h>
-#include"util.h"
 #include<signal.h>
 
 #define max 512
 #define maxchar 1024
+#define TRUE 1
+#define FALSE !TRUE
+
+static pid_t bash_pid;
+static pid_t grbash_pid;
+static int is_interact;
+static struct termios bash_mode;
+static char* Cd;
+extern char** environ;
+struct sigaction act_child;
+struct sigaction act_int;
+int prompt_num;
+char hostname[1204] = "";
+struct passwd *p;
+pid_t pid;
+char * hist_file;
+char hist_data[1024][1024];
+char hist_var[2048];
+int line_no=0;
+char currwd[1000];
+
+void signalHandler_child(int p);
+void signalHandler_int(int p);
+int ch_dir(char * args[]);
+void initialize();
+void init_bashrc();
+void prompt();
+int cmdhandler(char **);
+void copy_history();
+void write_curr_history(char buffer[]);
+
 using namespace std;
 
-void signalHandler_child(int p){
+int main(int argc, char *argv[], char ** envp)
+{
 
-	while (waitpid(-1, NULL, WNOHANG) > 0)
+    char buff[maxchar];
+    char buffdup[maxchar];
+    char *tokenlist[max];
+    prompt_num=0;
+    pid=-15;
+
+    int token_cnt;
+    initialize();
+    init_bashrc();
+
+    environ=envp;
+
+    setenv("SHELL",getcwd(Cd,1024),1);
+    //getcwd(currwd,sizeof(currwd));
+
+    while(1)
+    {
+        if(prompt_num==0)
+            prompt();
+        prompt_num=0;
+        line_no=0;
+        memset(buff,'\0',maxchar);
+
+        fgets(buff,maxchar,stdin);
+        //strcpy(buffdup,buff);
+        //int len=strlen(buffdup);
+
+        //printf("d%s\n",buffdup);
+        //copy_history();
+        //write_curr_history(buffdup);
+        //strcpy(hist_var,buff);
+
+        if((tokenlist[0] = strtok(buff," \n\t"))== NULL)
+            continue;
+        token_cnt=1;
+
+        while((tokenlist[token_cnt]= strtok(NULL, " \n\t"))!= NULL)
         {
-	}
-	printf("\n");
+            token_cnt++;
+
+        }
+        cmdhandler(tokenlist);
+    }
+
+
 }
 
-void signalHandler_int(int p){
+void init_bashrc()
+{
+    char name[]="bashrc";
+    FILE *fp;
+    fp=fopen(name,"w");
+    char s='$';
+    gethostname(hostname, sizeof(hostname));
 
-	if (kill(pid,SIGTERM) == 0){
-		printf("\nProcess %d received a SIGINT signal\n",pid);
-		no_reprint_prmpt = 1;
-	}else{
-		printf("\n");
+
+    p=getpwuid(getuid());
+    fprintf(fp, "USER : %s \n",getenv("LOGNAME"));
+    
+    fprintf(fp,"HOSTNAME :%s \n",hostname);
+    fprintf(fp,"$PS1 :%c \n",s);
+
+    fclose(fp);
+
+}
+
+void signalHandler_child(int p)
+{
+
+	while (waitpid(-1, NULL, WNOHANG) > 0)
+    {
+	}
+	
+}
+
+void signalHandler_int(int p)
+{
+
+	if (kill(pid,SIGTERM) == 0)
+	{
+		printf("\nProcess %d received a signal\n",pid);
+		prompt_num = 1;
+	}
+	else
+	{
+		cout<<endl;
 	}
 }
 
@@ -60,7 +164,7 @@ void initialize()
 
 			if (bash_pid != grbash_pid)
             {
-					printf("Error,shell is not process group leader");
+					printf("Error : Shell is not  a process group leader");
 
 					exit(EXIT_FAILURE);
 			}
@@ -71,167 +175,291 @@ void initialize()
 			tcgetattr(STDIN_FILENO, &bash_mode);
 
 
-			currentDirectory = (char*) calloc(1024, sizeof(char));
+			Cd = (char*) calloc(1024, sizeof(char));
         }
         else
         {
-                printf("Could not make the shell interactive.\n");
+                cout<<"shell not interactive"<<endl;
                 exit(EXIT_FAILURE);
         }
 }
+void copy_history()
+{
+
+    int filedescriptor;
+    hist_file=(char *)malloc(100*sizeof(char));
+
+    strcat(hist_file,currwd);
+    strcat(hist_file,"/");
+    strcat(hist_file,"history.txt");
+    filedescriptor=open(hist_file, O_RDONLY|O_CREAT,S_IRUSR|S_IWUSR);
+    int rbytes=0,i=0,idx=0,x=0;
+    char buff[1], temp[1024];
+
+    do {
+
+          rbytes=read(filedescriptor,buff,sizeof(buff));
+          for(i=0;i<rbytes;i++)
+          {
+
+              temp[idx]=buff[i];
+              idx++;
+              if(buff[i]=='\n')
+              {
+                  //cout<<"a"<<endl;
+                  temp[idx-1]='\0';
+                  idx=0;
+                  strcpy(hist_data[x],temp);
+                  //printf("%s\n",hist_data[x]);
+                  line_no++;
+                  x++;
+                  temp[0]='\0';
+
+              }
+          }
+
+    }while(rbytes==sizeof(buff));
+    close(filedescriptor);
 
 
+}
+void write_curr_history(char buffer[])
+{
+    char curr_input[2048];
+    int filedescriptor;
+    int res,len=0;
+    line_no++;
+    char lnum[10];
+
+    sprintf(lnum,"%d",line_no);
+    strcpy(curr_input," ");
+    strcat(curr_input,lnum);
+    strcat(curr_input," ");
+    strcat(curr_input,buffer);
+    //printf("curr %s\n",curr_input);
 
 
-int changeDirectory(char* tokenlist[])
+    filedescriptor=open(hist_file,O_WRONLY|O_APPEND|O_CREAT,S_IRUSR|S_IWUSR);
+    len=strlen(curr_input);
+    //cout<<len<<endl;
+    res=write(filedescriptor,curr_input,len);
+
+    if(res<0)
+    {
+        cout<<"error in writing";
+        return ;
+    }
+    close(filedescriptor);
+
+
+}
+
+void print_history()
+{
+    for(int i=0;i<line_no-1;i++)
+    {
+        printf("%s\n", hist_data[i] );
+    }
+    printf(" %d %s\n", line_no, hist_var);
+}
+
+void echo(char *tokenlist[])
+{
+
+    int i=1,j=0;
+    char environ_var[1000], *variable;
+
+    while(tokenlist[1][i]!='\0')
+    {
+        environ_var[j]=tokenlist[1][i];
+        j++;
+        i++;
+    }
+
+    environ_var[j]='\0';
+    variable=getenv(environ_var);
+
+    if(!variable)
+        cout<<endl;
+    printf("%s\n",variable);
+}
+
+
+int ch_dir(char* tokenlist[])
 {
 
 
-	if (tokenlist[1] == NULL)
+	 if (strcmp(tokenlist[1],"~")==0 || strcmp(tokenlist[1],"~/")==0)
+    {
+        //cout<<"cd"<<endl;
+		chdir(getenv("HOME"));
+		return 1;
+	}
+	else if (tokenlist[1] == NULL)
     {
 		chdir(getenv("HOME"));
 		return 1;
 	}
 
-	else if (tokenlist[1] == "~")
-    {
-        cout<<"cd"<<endl;
-		chdir(getenv("HOME"));
-		return 1;
-	}
-
-	else{
-		if (chdir(tokenlist[1]) == -1) {
+	else if(chdir(tokenlist[1]) == -1)
+		 {
 			printf(" %s: no such directory\n", tokenlist[1]);
             return -1;
 		}
-	}
+	
 	return 0;
 }
-int Environment_manager(char * tokenlist[], int choice){
-	char **env_aux;
-	switch(choice){
 
-		case 0:
-			for(env_aux = environ; *env_aux != 0; env_aux ++){
+
+int Environment_manager(char * tokenlist[], int choice)
+{
+	char **env_aux;
+	
+		if(choice==0)
+		{
+			for(env_aux = environ; *env_aux != 0; env_aux ++)
+			{
 				printf("%s\n", *env_aux);
 			}
-			break;
-		case 1:
-			if((tokenlist[1] == NULL) && tokenlist[2] == NULL){
-				printf("%s","Not enought input arguments\n");
+		}	
+		else if (choice==1)
+		{
+			if((tokenlist[1] == NULL) && tokenlist[2] == NULL)
+			{
+				cout<<"Not enough arguments"<<endl;
 				return -1;
 			}
 
-			if(getenv(tokenlist[1]) != NULL){
-				printf("%s", "The variable has been overwritten\n");
-			}else{
-				printf("%s", "The variable has been created\n");
+			if(getenv(tokenlist[1]) != NULL)
+			{
+				cout<<"variable overwritten "<<endl;
+			}
+			else
+			{
+				cout<<"variable created"<<endl;
 			}
 
-			if (tokenlist[2] == NULL){
+			if (tokenlist[2] == NULL)
+			{
 				setenv(tokenlist[1], "", 1);
-			}else{
+			}
+			else
+			{
 				setenv(tokenlist[1], tokenlist[2], 1);
 			}
-			break;
-		case 2:
-			if(tokenlist[1] == NULL){
+		}
+		else if(choice==2)
+		{
+			if(tokenlist[1] == NULL)
+			{
 				printf("%s","Not enought input arguments\n");
 				return -1;
 			}
-			if(getenv(tokenlist[1]) != NULL){
+			if(getenv(tokenlist[1]) != NULL)
+			{
 				unsetenv(tokenlist[1]);
+
 				printf("%s", "The variable has been erased\n");
-			}else{
+			}
+			else
+			{
 				printf("%s", "The variable does not exist\n");
 			}
-		break;
+		}
 
-
+		return 0;
 	}
-	return 0;
-}
+	
+
 void prompt()
 {
-
-	char hostname[1204] = "";
-
 	gethostname(hostname, sizeof(hostname));
 
-	printf("%s@%s %s > ", getenv("LOGNAME"), hostname, getcwd(currentDirectory, 1024));
+	printf("%s@%s %s > ", getenv("LOGNAME"), hostname, getcwd(Cd, 1024));
 }
 
-void execcmd(char **tokenlist, int background){
+void execcmd(char **tokenlist, int bg)
+{
 	 int err = -1;
 
-	 if((pid=fork())==-1){
-		 printf("Child process could not be created\n");
+	 if((pid=fork())==-1)
+	 {
+		 printf("Child could not be created\n");
+
 		 return;
 	 }
-	if(pid==0){
+
+	if(pid==0)
+	{
 
 		signal(SIGINT, SIG_IGN);
 
 
-		setenv("parent",getcwd(currentDirectory, 1024),1);
+		setenv("parent",getcwd(Cd, 1024),1);
 
 
-		if (execvp(tokenlist[0],tokenlist)==err){
+		if (execvp(tokenlist[0],tokenlist)==err)
+		{
 			printf("Command not found");
 			kill(getpid(),SIGTERM);
 		}
 	 }
 
 
-	 if (background == 0){
+	 if (bg == 0){
 		 waitpid(pid,NULL,0);
-	 }else{
+	 }
+	 else
+	 {
 
 		 printf("Process created with PID: %d\n",pid);
 	 }
 }
-void fileIO(char * tokenlist[], char* inputFile, char* outputFile, int choice)
+void fileIO(char * tokenlist[], char* inp, char* out, int choice)
 {
 
 	int err = -1,fd;
 
     //cout<<"in file io"<<endl;
-	if((pid=fork())==-1){
+	if((pid=fork())==-1)
+	{
 		printf("Child process could not be created\n");
 		return;
 	}
-	if(pid==0){
+	if(pid==0)
+	{
 
 		if (choice == 0)
-            {
+         {
             //cout<<"in >"<<endl;
-			fd = open(outputFile, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+			fd = creat(out, 0644);;
             dup2(fd, STDOUT_FILENO);
 			close(fd);
 
 		}
+
 		else if (choice == 1)
 		{
 
-			fd = open(inputFile, O_RDONLY, 0600);
+			fd = open(inp, O_RDONLY, 0600);
 
 			dup2(fd, STDIN_FILENO);
 			close(fd);
 
-			fd = open(outputFile, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+			fd = open(out, O_CREAT | O_TRUNC | O_WRONLY, 0600);
 			dup2(fd, STDOUT_FILENO);
 			close(fd);
 		}
+		
 		else if(choice ==2)
         {
-            fd = open(outputFile, O_WRONLY|O_APPEND);
+            fd = open(out, O_WRONLY|O_APPEND);
             dup2(fd, STDOUT_FILENO);
 			close(fd);
 
         }
 
-		setenv("parent",getcwd(currentDirectory, 1024),1);
+		setenv("parent",getcwd(Cd, 1024),1);
 
 		if (execvp(tokenlist[0],tokenlist)==err)
         {
@@ -241,23 +469,17 @@ void fileIO(char * tokenlist[], char* inputFile, char* outputFile, int choice)
 	}
 	waitpid(pid,NULL,0);
 }
+
 void pipe_manager(char * tokenlist[])
 {
 
 	int fd1[2];
 	int fd2[2];
 
-	int no_of_cmds = 0;
-
+	int no_of_cmds = 0,i = 0,j = 0,k = 0,l = 0,err = -1,end = 0;
 	char *cmd[256];
 
 	pid_t pid;
-
-	int err = -1;
-	int end = 0;
-
-
-	int i = 0,j = 0,k = 0,l = 0;
 
 	while (tokenlist[l] != NULL)
         {
@@ -268,6 +490,7 @@ void pipe_manager(char * tokenlist[])
 
 		l++;
 	}
+
 	no_of_cmds++;
 
     //printf("%d\n",num_cmds);
@@ -305,7 +528,8 @@ void pipe_manager(char * tokenlist[])
 
 		pid=fork();
 
-		if(pid==-1){
+		if(pid==-1)
+		{
 			if (i != no_of_cmds - 1)
             {
 				if (i % 2 != 0)
@@ -321,7 +545,8 @@ void pipe_manager(char * tokenlist[])
 
 			return;
 		}
-		if(pid==0){
+		if(pid==0)
+		{
 
 			if (i == 0){
 				dup2(fd2[1], STDOUT_FILENO);
@@ -329,17 +554,20 @@ void pipe_manager(char * tokenlist[])
 
 			else if (i == no_of_cmds - 1)
             {
-				if (no_of_cmds % 2 != 0){
+				if (no_of_cmds % 2 != 0)
+				{
 
 					dup2(fd1[0],STDIN_FILENO);
 				}
-				else{
+				else
+				{
 
 					dup2(fd2[0],STDIN_FILENO);
 				}
 
 			}
-			else{
+			else
+			{
 				if (i % 2 != 0)
                 {
 					dup2(fd2[0],STDIN_FILENO);
@@ -354,13 +582,15 @@ void pipe_manager(char * tokenlist[])
 				}
 			}
 
-			if (execvp(cmd[0],cmd)==err){
+			if (execvp(cmd[0],cmd)==err)
+			{
 				kill(getpid(),SIGTERM);
 			}
 		}
 
 
-		if (i == 0){
+		if (i == 0)
+		{
 			close(fd2[1]);
 		}
 		else if (i == no_of_cmds - 1)
@@ -374,13 +604,16 @@ void pipe_manager(char * tokenlist[])
 				close(fd2[0]);
 			}
 		}
-		else{
-			if (i % 2 != 0){
+		else
+		{
+			if (i % 2 != 0)
+			{
 				close(fd2[0]);
 
 				close(fd1[1]);
 			}
-			else{
+			else
+			{
 				close(fd1[0]);
 
 				close(fd2[1]);
@@ -393,16 +626,13 @@ void pipe_manager(char * tokenlist[])
 		i++;
 	}
 }
+
 int cmdhandler(char *tokenlist[])
 {
-    int x,y;
+    int x,y,fd,stdOut,a,bg;
     x=0;
     y=0;
-
-    int fd;
-    int stdOut;
-
-    int a,bg=0;
+    bg=0;
 
     char *tokenlist_a[256];
 
@@ -414,14 +644,20 @@ int cmdhandler(char *tokenlist[])
         tokenlist_a[y]=tokenlist[y];
         y++;
     }
-    if(strcmp(tokenlist[0],"exit")==0)
+
+     
+    if(strcmp(tokenlist[0],"cd")==0)
+        ch_dir(tokenlist);
+
+    else if(strcmp(tokenlist[0],"exit")==0)
         exit(0);
+    else if(strcmp(tokenlist[0],"echo")==0)
+    		echo(tokenlist);
 
-    else if(strcmp(tokenlist[0],"clear")==0)
-        system("clear");
-    else if(strcmp(tokenlist[0],"cd")==0)
-        changeDirectory(tokenlist);
-
+    else if(strcmp(tokenlist[0],"history")==0)
+    {
+    	print_history();
+    }	
     else if(strcmp(tokenlist[0],"pwd")==0)
     {
         if(tokenlist[y]!=NULL)
@@ -433,14 +669,14 @@ int cmdhandler(char *tokenlist[])
                 dup2(fd,STDOUT_FILENO);
                 close(fd);
 
-                printf("%s\n",getcwd(currentDirectory,1024));
+                printf("%s\n",getcwd(Cd,1024));
                 dup2(stdOut, STDOUT_FILENO);
             }
         }
 
         else
         {
-            printf("%s\n",getcwd(currentDirectory,1024));
+            printf("%s\n",getcwd(Cd,1024));
         }
     }
     else if(strcmp(tokenlist[0],"environ")==0)
@@ -539,41 +775,4 @@ int cmdhandler(char *tokenlist[])
 
     return 1;
 }
-int main(int argc, char *argv[], char ** envp)
-{
 
-    char buff[maxchar];
-    char *tokenlist[max];
-    no_reprint_prmpt=0;
-    pid=-15;
-
-    int token_cnt;
-    initialize();
-
-    environ=envp;
-
-    setenv("SHELL",getcwd(currentDirectory,1024),1);
-
-    while(1)
-    {
-        if(no_reprint_prmpt==0)
-            prompt();
-        no_reprint_prmpt=0;
-        memset(buff,'\0',maxchar);
-
-        fgets(buff,maxchar,stdin);
-
-        if((tokenlist[0] = strtok(buff," \n\t"))== NULL)
-            continue;
-        token_cnt=1;
-
-        while((tokenlist[token_cnt]= strtok(NULL, " \n\t"))!= NULL)
-        {
-            token_cnt++;
-
-        }
-        cmdhandler(tokenlist);
-    }
-
-
-}
